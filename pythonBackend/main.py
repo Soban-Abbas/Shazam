@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile
+from fastapi import FastAPI, UploadFile, Form
 import shutil
 import os
 import librosa
@@ -117,9 +117,56 @@ def match_song(query_audio_path):
     return {"song": title, "artist": artist, "confidence": best_score}
 
 
+def ingest_song(audio_path, title, artist):
+    spectrogram_db, sr = get_spectrogram(audio_path)
+    peaks = find_peaks(spectrogram_db)
+    hashes = generate_hashes(peaks)
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "INSERT INTO songs (title, artist) VALUES (%s, %s) RETURNING id",
+        (title, artist)
+    )
+    song_id = cursor.fetchone()[0]
+
+    data_to_insert = [(h, song_id, int(anchor_time)) for h, anchor_time in hashes]
+    cursor.executemany(
+        "INSERT INTO fingerprints (hash, song_id, anchor_time) VALUES (%s, %s, %s)",
+        data_to_insert
+    )
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print(f"'{title}' ingested with {len(hashes)} fingerprints")
+
+
+
+
 # ============================
 # API ROUTE
 # ============================
+
+
+@app.post("/add-song")
+async def add_song(file: UploadFile, title: str = Form(...), artist: str = Form(...)):
+    save_path = f"songs/{file.filename}"
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    ingest_song(save_path, title=title, artist=artist)
+
+    return {"message": f"'{title}' by {artist} added successfully"}
+
+
+
+
+
+
+
+
 @app.post("/process-audio")
 async def process_audio(file: UploadFile):
     save_path = f"received_audio/{file.filename}"

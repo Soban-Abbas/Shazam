@@ -8,4 +8,5 @@ import (
 
 func FileRoutes(router *gin.Engine) {
 	router.POST("/shazam/uploadfile", controllers.UploadFileController)
+	router.POST("/shazam/addsong", controllers.AddSongController)
 }

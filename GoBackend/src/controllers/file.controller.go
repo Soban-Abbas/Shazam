@@ -29,3 +29,34 @@ func UploadFileController(c *gin.Context) {
 
 	c.JSON(http.StatusOK, result)
 }
+
+
+func AddSongController(c *gin.Context) {
+	file, err := c.FormFile("audio")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "No audio file received"})
+		return
+	}
+
+	title := c.PostForm("title")
+	artist := c.PostForm("artist")
+
+	if title == "" || artist == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Title and artist are required"})
+		return
+	}
+
+	savePath := "./temp/" + filepath.Base(file.Filename)
+	if err := c.SaveUploadedFile(file, savePath); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not save file"})
+		return
+	}
+
+	result, err := services.SendSongToPythonAPI(savePath, title, artist)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Python service failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
