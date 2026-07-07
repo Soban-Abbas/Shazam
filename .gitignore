@@ -7,7 +7,7 @@ pythonBackend/songs/
 
 # Go
 GoBackend/temp/
-
+GoBackend/src/config/
 # General
 .env
 .DS_Store
