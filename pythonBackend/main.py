@@ -7,7 +7,9 @@ from scipy.ndimage import maximum_filter
 import hashlib
 import psycopg2
 from collections import defaultdict, Counter
+from dotenv import load_dotenv
 
+load_dotenv()
 app = FastAPI()
 
 os.makedirs("received_audio", exist_ok=True)
@@ -17,11 +19,11 @@ os.makedirs("received_audio", exist_ok=True)
 # ============================
 def get_connection():
     return psycopg2.connect(
-        dbname="shazam_db",
-        user="postgres",
-        password="soban2669",  
-        host="localhost",
-        port="5432"
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT")
     )
 
 # ============================

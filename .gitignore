@@ -2,6 +2,7 @@
 pythonBackend/venv/
 pythonBackend/received_audio/
 pythonBackend/__pycache__/
+pythonBackend/songs/
 *.pyc
 
 # Go
