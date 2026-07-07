@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shazam — Audio Recognition</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #0A0C10;
+    --surface: #12151C;
+    --surface-2: #191D27;
+    --border: #242938;
+    --text: #F2F4F8;
+    --text-muted: #838B9E;
+    --signal: #45F0C4;
+    --signal-dim: rgba(69,240,196,0.14);
+    --admin: #FFB020;
+    --admin-dim: rgba(255,176,32,0.14);
+    --danger: #FF5C6C;
+    --radius: 14px;
+  }
+
+  *{ box-sizing: border-box; margin:0; padding:0; }
+
+  body{
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* subtle ambient grid backdrop */
+  body::before{
+    content:"";
+    position: fixed; inset:0;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(69,240,196,0.05), transparent 40%),
+      radial-gradient(circle at 80% 70%, rgba(255,176,32,0.04), transparent 40%);
+    pointer-events:none;
+    z-index:0;
+  }
+
+  .wordmark{
+    position: fixed;
+    top: 28px; left: 32px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 0.14em;
+    color: var(--text);
+    z-index: 5;
+  }
+  .wordmark span{ color: var(--signal); }
+
+  .container{
+    position: relative;
+    z-index: 1;
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 120px 24px 60px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* segmented toggle */
+  .toggle{
+    display: flex;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 4px;
+    margin-bottom: 56px;
+  }
+  .toggle button{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    padding: 9px 22px;
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    border-radius: 999px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+  }
+  .toggle button.active{
+    background: var(--text);
+    color: var(--bg);
+  }
+
+  .view{ width: 100%; display: none; flex-direction: column; align-items: center; }
+  .view.active{ display: flex; }
+
+  /* ============ LISTEN VIEW ============ */
+
+  .stage{
+    position: relative;
+    width: 280px; height: 280px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 40px;
+  }
+
+  .ring{
+    position: absolute;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    opacity: 0;
+  }
+  .ring.pulse{
+    animation: pulse 2.2s ease-out infinite;
+  }
+  @keyframes pulse{
+    0%{ width: 130px; height: 130px; opacity: 0.5; border-color: var(--signal); }
+    100%{ width: 280px; height: 280px; opacity: 0; border-color: var(--signal); }
+  }
+
+  .bars{
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    pointer-events: none;
+  }
+  .bars span{
+    width: 3px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--signal);
+    opacity: 0.55;
+    transform-origin: center;
+    transition: height 0.08s ease;
+  }
+
+  .record-btn{
+    position: relative;
+    z-index: 2;
+    width: 130px; height: 130px;
+    border-radius: 50%;
+    border: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.15s ease, border-color 0.2s ease, background 0.2s ease;
+  }
+  .record-btn:hover{ transform: scale(1.03); border-color: var(--signal); }
+  .record-btn:active{ transform: scale(0.97); }
+  .record-btn.listening{
+    background: var(--signal-dim);
+    border-color: var(--signal);
+  }
+  .record-btn svg{ width: 42px; height: 42px; stroke: var(--text); transition: stroke 0.2s ease; }
+  .record-btn.listening svg{ stroke: var(--signal); }
+
+  .status{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    min-height: 20px;
+  }
+  .status.live{ color: var(--signal); }
+
+  .hint{
+    font-size: 13px;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+  }
+
+  /* result card */
+  .result-card{
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-top: 12px;
+    display: none;
+  }
+  .result-card.show{ display: block; animation: rise 0.35s ease; }
+  @keyframes rise{ from{ opacity:0; transform: translateY(8px);} to{ opacity:1; transform: translateY(0);} }
+
+  .result-eyebrow{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--signal);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .result-eyebrow.no-match{ color: var(--danger); }
+
+  .result-title{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .result-artist{
+    font-size: 15px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+  }
+  .result-meta{
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+  }
+  .confidence-label{ font-size: 12px; color: var(--text-muted); }
+  .confidence-value{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 14px;
+    color: var(--text);
+  }
+  .retry-btn{
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.2s ease;
+  }
+  .retry-btn:hover{ border-color: var(--signal); }
+
+  /* ============ ADMIN VIEW ============ */
+
+  .panel{
+    width: 100%;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 32px;
+  }
+  .panel-eyebrow{
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--admin);
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .panel-title{
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 22px;
+    font-weight: 700;
+    margin-bottom: 24px;
+  }
+
+  .field{ margin-bottom: 18px; }
+  .field label{
+    display: block;
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 7px;
+    letter-spacing: 0.02em;
+  }
+  .field input[type="text"],
+  .field input[type="password"]{
+    width: 100%;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 11px 14px;
+    color: var(--text);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s ease;
+  }
+  .field input:focus{ border-color: var(--admin); }
+
+  .drop-zone{
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease;
+  }
+  .drop-zone:hover, .drop-zone.dragover{
+    border-color: var(--admin);
+    background: var(--admin-dim);
+  }
+  .drop-zone p{ font-size: 13px; color: var(--text-muted); }
+  .drop-zone .filename{ color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 12px; margin-top: 6px; }
+
+  .btn-primary{
+    width: 100%;
+    padding: 13px;
+    border-radius: 8px;
+    border: none;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: opacity 0.2s ease, transform 0.1s ease;
+  }
+  .btn-primary:active{ transform: scale(0.98); }
+  .btn-primary:disabled{ opacity: 0.5; cursor: not-allowed; }
+  .btn-primary.signal{ background: var(--signal); color: #06120F; }
+  .btn-primary.admin{ background: var(--admin); color: #1A1200; }
+
+  .logged-in-bar{
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 24px;
+  }
+  .logged-in-bar .who{ font-size: 13px; color: var(--text-muted); }
+  .logged-in-bar .who span{ color: var(--admin); font-family: 'JetBrains Mono', monospace; }
+  .logout-link{
+    background: none; border: none; color: var(--text-muted);
+    font-size: 13px; cursor: pointer; text-decoration: underline;
+  }
+  .logout-link:hover{ color: var(--text); }
+
+  .msg{
+    font-size: 13px;
+    margin-top: 14px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    display: none;
+  }
+  .msg.show{ display: block; }
+  .msg.ok{ background: var(--signal-dim); color: var(--signal); }
+  .msg.err{ background: rgba(255,92,108,0.12); color: var(--danger); }
+
+  @media (max-width: 480px){
+    .stage{ width: 240px; height: 240px; }
+    .container{ padding-top: 100px; }
+  }
+
+  @media (prefers-reduced-motion: reduce){
+    .ring.pulse{ animation: none; }
+    .bars span{ transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="wordmark">WAVE<span>ID</span></div>
+
+<div class="container">
+
+  <div class="toggle">
+    <button id="tabListen" class="active">Listen</button>
+    <button id="tabAdmin">Admin</button>
+  </div>
+
+  <!-- ===================== LISTEN VIEW ===================== -->
+  <div id="viewListen" class="view active">
+
+    <div class="stage">
+      <div class="ring pulse" id="ring1"></div>
+      <div class="bars" id="bars"></div>
+      <button class="record-btn" id="recordBtn" aria-label="Start listening">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/>
+          <path d="M19 11a7 7 0 0 1-14 0"/>
+          <path d="M12 18v3"/>
+        </svg>
+      </button>
+    </div>
+
+    <div class="status" id="statusText">Tap to identify</div>
+    <div class="hint" id="hintText">Hold your device near the sound source</div>
+
+    <div class="result-card" id="resultCard">
+      <div class="result-eyebrow" id="resultEyebrow">Match found</div>
+      <div class="result-title" id="resultTitle">—</div>
+      <div class="result-artist" id="resultArtist">—</div>
+      <div class="result-meta">
+        <div>
+          <div class="confidence-label">Confidence</div>
+          <div class="confidence-value" id="resultConfidence">—</div>
+        </div>
+        <button class="retry-btn" id="retryBtn">Listen again</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== ADMIN VIEW ===================== -->
+  <div id="viewAdmin" class="view">
+
+    <!-- Login panel -->
+    <div class="panel" id="loginPanel">
+      <div class="panel-eyebrow">Restricted</div>
+      <div class="panel-title">Admin sign in</div>
+
+      <div class="field">
+        <label for="loginUsername">Username</label>
+        <input type="text" id="loginUsername" autocomplete="username" placeholder="admin">
+      </div>
+      <div class="field">
+        <label for="loginPassword">Password</label>
+        <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••">
+      </div>
+
+      <button class="btn-primary admin" id="loginBtn">Sign in</button>
+      <div class="msg" id="loginMsg"></div>
+    </div>
+
+    <!-- Add song panel (shown after login) -->
+    <div class="panel" id="addSongPanel" style="display:none;">
+      <div class="logged-in-bar">
+        <div class="who">Signed in as <span id="whoUsername">admin</span></div>
+        <button class="logout-link" id="logoutBtn">Sign out</button>
+      </div>
+
+      <div class="panel-eyebrow">Catalog</div>
+      <div class="panel-title">Add a song</div>
+
+      <div class="field">
+        <label>Audio file</label>
+        <div class="drop-zone" id="dropZone">
+          <p>Click to choose a file, or drag one here</p>
+          <div class="filename" id="fileName"></div>
+        </div>
+        <input type="file" id="fileInput" accept="audio/*" style="display:none;">
+      </div>
+
+      <div class="field">
+        <label for="songTitle">Title</label>
+        <input type="text" id="songTitle" placeholder="Song title">
+      </div>
+      <div class="field">
+        <label for="songArtist">Artist</label>
+        <input type="text" id="songArtist" placeholder="Artist name">
+      </div>
+
+      <button class="btn-primary admin" id="addSongBtn">Add to catalog</button>
+      <div class="msg" id="addSongMsg"></div>
+    </div>
+
+  </div>
+
+</div>
+
+<script>
+  // ============================================
+  // CONFIG — change this if your Go server runs elsewhere
+  // ============================================
+  const API_BASE = "http://localhost:8080";
+
+  // ============================================
+  // TAB SWITCHING
+  // ============================================
+  const tabListen = document.getElementById('tabListen');
+  const tabAdmin = document.getElementById('tabAdmin');
+  const viewListen = document.getElementById('viewListen');
+  const viewAdmin = document.getElementById('viewAdmin');
+
+  tabListen.onclick = () => {
+    tabListen.classList.add('active'); tabAdmin.classList.remove('active');
+    viewListen.classList.add('active'); viewAdmin.classList.remove('active');
+  };
+  tabAdmin.onclick = () => {
+    tabAdmin.classList.add('active'); tabListen.classList.remove('active');
+    viewAdmin.classList.add('active'); viewListen.classList.remove('active');
+  };
+
+  // ============================================
+  // LISTEN VIEW — record + identify
+  // ============================================
+  const recordBtn = document.getElementById('recordBtn');
+  const statusText = document.getElementById('statusText');
+  const hintText = document.getElementById('hintText');
+  const resultCard = document.getElementById('resultCard');
+  const resultEyebrow = document.getElementById('resultEyebrow');
+  const resultTitle = document.getElementById('resultTitle');
+  const resultArtist = document.getElementById('resultArtist');
+  const resultConfidence = document.getElementById('resultConfidence');
+  const retryBtn = document.getElementById('retryBtn');
+  const barsContainer = document.getElementById('bars');
+
+  // build the bar spectrum (signature element)
+  const BAR_COUNT = 28;
+  for (let i = 0; i < BAR_COUNT; i++) {
+    const bar = document.createElement('span');
+    barsContainer.appendChild(bar);
+  }
+  const barEls = barsContainer.querySelectorAll('span');
+
+  let mediaRecorder, audioChunks, audioContext, analyser, animationId, stream;
+  let isListening = false;
+
+  async function startListening() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      statusText.textContent = "Microphone access denied";
+      return;
+    }
+
+    isListening = true;
+    recordBtn.classList.add('listening');
+    statusText.classList.add('live');
+    statusText.textContent = "Listening…";
+    hintText.textContent = "Analyzing audio in real time";
+    resultCard.classList.remove('show');
+
+    // live spectrum visualization
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioContext.createMediaStreamSource(stream);
+    analyser = audioContext.createAnalyser();
+    analyser.fftSize = 64;
+    source.connect(analyser);
+    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+    function animateBars() {
+      analyser.getByteFrequencyData(dataArray);
+      barEls.forEach((bar, i) => {
+        const value = dataArray[i % dataArray.length];
+        const height = 6 + (value / 255) * 46;
+        bar.style.height = height + 'px';
+        bar.style.opacity = 0.4 + (value / 255) * 0.6;
+      });
+      animationId = requestAnimationFrame(animateBars);
+    }
+    animateBars();
+
+    // actual recording
+    mediaRecorder = new MediaRecorder(stream);
+    audioChunks = [];
+    mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
+    mediaRecorder.start();
+
+    setTimeout(() => {
+      if (isListening) stopListening();
+    }, 7000);
+  }
+
+  function stopListening() {
+    isListening = false;
+    recordBtn.classList.remove('listening');
+    statusText.classList.remove('live');
+    statusText.textContent = "Matching…";
+    hintText.textContent = "Comparing against the catalog";
+
+    cancelAnimationFrame(animationId);
+    barEls.forEach(bar => { bar.style.height = '6px'; bar.style.opacity = 0.25; });
+
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    stream.getTracks().forEach(t => t.stop());
+    if (audioContext) audioContext.close();
+
+    mediaRecorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      await identify(audioBlob);
+    };
+  }
+
+  async function identify(audioBlob) {
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, 'clip.webm');
+
+      const res = await fetch(`${API_BASE}/shazam/uploadfile`, {
+        method: 'POST',
+        body: formData
+      });
+      const data = await res.json();
+      showResult(data);
+    } catch (err) {
+      statusText.textContent = "Couldn't reach the server";
+      hintText.textContent = "Check that the backend is running";
+    }
+  }
+
+  function showResult(data) {
+    statusText.textContent = "Tap to identify";
+    hintText.textContent = "Hold your device near the sound source";
+
+    resultCard.classList.add('show');
+
+    if (data && data.song) {
+      resultEyebrow.textContent = "Match found";
+      resultEyebrow.classList.remove('no-match');
+      resultTitle.textContent = data.song;
+      resultArtist.textContent = data.artist || "Unknown artist";
+      resultConfidence.textContent = data.confidence != null ? data.confidence : "—";
+    } else {
+      resultEyebrow.textContent = "No match";
+      resultEyebrow.classList.add('no-match');
+      resultTitle.textContent = "Couldn't identify this clip";
+      resultArtist.textContent = data && data.message ? data.message : "Try holding the mic closer to the source";
+      resultConfidence.textContent = "0";
+    }
+  }
+
+  recordBtn.addEventListener('click', () => {
+    if (!isListening) startListening();
+    else stopListening();
+  });
+
+  retryBtn.addEventListener('click', () => {
+    resultCard.classList.remove('show');
+  });
+
+  // ============================================
+  // ADMIN VIEW — login + add song
+  // ============================================
+  let authToken = localStorage.getItem('waveid_token') || null;
+  let authUsername = localStorage.getItem('waveid_username') || '';
+
+  const loginPanel = document.getElementById('loginPanel');
+  const addSongPanel = document.getElementById('addSongPanel');
+  const loginBtn = document.getElementById('loginBtn');
+  const loginMsg = document.getElementById('loginMsg');
+  const whoUsername = document.getElementById('whoUsername');
+  const logoutBtn = document.getElementById('logoutBtn');
+
+  function refreshAdminView() {
+    if (authToken) {
+      loginPanel.style.display = 'none';
+      addSongPanel.style.display = 'block';
+      whoUsername.textContent = authUsername || 'admin';
+    } else {
+      loginPanel.style.display = 'block';
+      addSongPanel.style.display = 'none';
+    }
+  }
+  refreshAdminView();
+
+  function showMsg(el, text, ok) {
+    el.textContent = text;
+    el.classList.remove('ok', 'err');
+    el.classList.add('show', ok ? 'ok' : 'err');
+  }
+
+  loginBtn.addEventListener('click', async () => {
+    const username = document.getElementById('loginUsername').value.trim();
+    const password = document.getElementById('loginPassword').value;
+
+    if (!username || !password) {
+      showMsg(loginMsg, "Enter both username and password", false);
+      return;
+    }
+
+    loginBtn.disabled = true;
+    loginBtn.textContent = "Signing in…";
+
+    try {
+      const res = await fetch(`${API_BASE}/shazam/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+
+      if (res.ok && data.token) {
+        authToken = data.token;
+        authUsername = username;
+        localStorage.setItem('waveid_token', authToken);
+        localStorage.setItem('waveid_username', authUsername);
+        refreshAdminView();
+      } else {
+        showMsg(loginMsg, data.error || "Invalid username or password", false);
+      }
+    } catch (err) {
+      showMsg(loginMsg, "Couldn't reach the server", false);
+    }
+
+    loginBtn.disabled = false;
+    loginBtn.textContent = "Sign in";
+  });
+
+  logoutBtn.addEventListener('click', () => {
+    authToken = null;
+    authUsername = '';
+    localStorage.removeItem('waveid_token');
+    localStorage.removeItem('waveid_username');
+    refreshAdminView();
+  });
+
+  // drag & drop / file picker
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const fileName = document.getElementById('fileName');
+  let selectedFile = null;
+
+  dropZone.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', () => {
+    if (fileInput.files.length) {
+      selectedFile = fileInput.files[0];
+      fileName.textContent = selectedFile.name;
+    }
+  });
+  dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      selectedFile = e.dataTransfer.files[0];
+      fileName.textContent = selectedFile.name;
+    }
+  });
+
+  const addSongBtn = document.getElementById('addSongBtn');
+  const addSongMsg = document.getElementById('addSongMsg');
+
+  addSongBtn.addEventListener('click', async () => {
+    const title = document.getElementById('songTitle').value.trim();
+    const artist = document.getElementById('songArtist').value.trim();
+
+    if (!selectedFile || !title || !artist) {
+      showMsg(addSongMsg, "Choose a file and fill in both fields", false);
+      return;
+    }
+
+    addSongBtn.disabled = true;
+    addSongBtn.textContent = "Adding…";
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', selectedFile);
+      formData.append('title', title);
+      formData.append('artist', artist);
+
+      const res = await fetch(`${API_BASE}/shazam/addsong`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${authToken}` },
+        body: formData
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        showMsg(addSongMsg, data.message || "Song added successfully", true);
+        document.getElementById('songTitle').value = '';
+        document.getElementById('songArtist').value = '';
+        fileName.textContent = '';
+        selectedFile = null;
+      } else {
+        showMsg(addSongMsg, data.error || "Could not add song", false);
+        if (res.status === 401) {
+          authToken = null;
+          localStorage.removeItem('waveid_token');
+          refreshAdminView();
+        }
+      }
+    } catch (err) {
+      showMsg(addSongMsg, "Couldn't reach the server", false);
+    }
+
+    addSongBtn.disabled = false;
+    addSongBtn.textContent = "Add to catalog";
+  });
+</script>
+
+</body>
+</html>

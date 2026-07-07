@@ -1,6 +1,7 @@
+import os
+os.environ["PATH"] += os.pathsep + r"C:\Users\soban\Downloads\ffmpeg-8.1.2-essentials_build\ffmpeg-8.1.2-essentials_build\bin"
 from fastapi import FastAPI, UploadFile, Form
 import shutil
-import os
 import librosa
 import numpy as np
 from scipy.ndimage import maximum_filter
@@ -8,6 +9,11 @@ import hashlib
 import psycopg2
 from collections import defaultdict, Counter
 from dotenv import load_dotenv
+
+from pydub import AudioSegment
+
+AudioSegment.converter = r"C:\Users\soban\Downloads\ffmpeg-8.1.2-essentials_build\ffmpeg-8.1.2-essentials_build\bin\ffmpeg.exe"
+AudioSegment.ffprobe = r"C:\Users\soban\Downloads\ffmpeg-8.1.2-essentials_build\ffmpeg-8.1.2-essentials_build\bin\ffprobe.exe"
 
 load_dotenv()
 app = FastAPI()
@@ -166,16 +172,30 @@ async def add_song(file: UploadFile, title: str = Form(...), artist: str = Form(
 
 
 
-
 @app.post("/process-audio")
 async def process_audio(file: UploadFile):
-    save_path = f"received_audio/{file.filename}"
-    with open(save_path, "wb") as buffer:
+    temp_path = f"received_audio/{file.filename}"
+    with open(temp_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
-    result = match_song(save_path)
+    # WebM ko WAV mein convert karo
+    wav_path = temp_path.rsplit(".", 1)[0] + ".wav"
+    audio = AudioSegment.from_file(temp_path)
+    audio.export(wav_path, format="wav")
 
-    if result is None:
-        return {"song": None, "artist": None, "message": "No match found"}
+    result = match_song(wav_path)
 
-    return result
+    return result if result else {"song": None, "artist": None, "message": "No match found"}
+
+# @app.post("/process-audio")
+# async def process_audio(file: UploadFile):
+#     save_path = f"received_audio/{file.filename}"
+#     with open(save_path, "wb") as buffer:
+#         shutil.copyfileobj(file.file, buffer)
+
+#     result = match_song(save_path)
+
+#     if result is None:
+#         return {"song": None, "artist": None, "message": "No match found"}
+
+#     return result
