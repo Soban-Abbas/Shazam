@@ -1,6 +1,3 @@
-from fastapi import FastAPI, UploadFile
-import shutil
-import os
 import librosa
 import numpy as np
 from scipy.ndimage import maximum_filter
@@ -8,24 +5,20 @@ import hashlib
 import psycopg2
 from collections import defaultdict, Counter
 
-app = FastAPI()
-
-os.makedirs("received_audio", exist_ok=True)
-
 # ============================
 # DATABASE CONNECTION
 # ============================
-def get_connection():
-    return psycopg2.connect(
-        dbname="shazam_db",
-        user="postgres",
-        password="soban2669",  
-        host="localhost",
-        port="5432"
-    )
+conn = psycopg2.connect(
+    dbname="shazam_db",
+    user="postgres",
+    password="soban2669",   # apna password daalo
+    host="localhost",
+    port="5432"
+)
+cursor = conn.cursor()
 
 # ============================
-# Spectrogram + Peaks + Hashing (same functions)
+# Same functions jo ingest mein use ki thi (spectrogram, peaks, hashes)
 # ============================
 def get_spectrogram(audio_path):
     y, sr = librosa.load(audio_path)
@@ -62,16 +55,18 @@ def generate_hashes(peaks, fan_value=FAN_VALUE):
     return hashes
 
 # ============================
-# MATCHING LOGIC
+# MATCHING LOGIC (Naya Part)
 # ============================
 def match_song(query_audio_path):
-    conn = get_connection()
-    cursor = conn.cursor()
+    print(f"Processing query: {query_audio_path}...")
 
     spectrogram_db, sr = get_spectrogram(query_audio_path)
     peaks = find_peaks(spectrogram_db)
     query_hashes = generate_hashes(peaks)
 
+    print(f"Query hashes generated: {len(query_hashes)}")
+
+    # Har song_id ke liye "time-difference votes" store karenge
     matches = defaultdict(list)
 
     for h, query_time in query_hashes:
@@ -82,15 +77,15 @@ def match_song(query_audio_path):
         results = cursor.fetchall()
 
         for song_id, db_anchor_time in results:
+            # Time delta nikalo - agar sahi gaana hai to ye consistent rahega
             delta = db_anchor_time - query_time
             matches[song_id].append(delta)
 
-    cursor.close()
-    conn.close()
-
     if not matches:
+        print("❌ No match found.")
         return None
 
+    # Har song ke liye, sabse zyada repeat hone wala delta dhundo (histogram peak)
     best_song_id = None
     best_score = 0
 
@@ -98,35 +93,29 @@ def match_song(query_audio_path):
         delta_counts = Counter(deltas)
         most_common_delta, count = delta_counts.most_common(1)[0]
 
+        print(f"Song ID {song_id}: {count} matching hashes at consistent offset")
+
         if count > best_score:
             best_score = count
             best_song_id = song_id
 
     if best_song_id is None:
+        print("❌ No confident match found.")
         return None
 
-    conn = get_connection()
-    cursor = conn.cursor()
+    # Song ka naam nikalo
     cursor.execute("SELECT title, artist FROM songs WHERE id = %s", (best_song_id,))
     title, artist = cursor.fetchone()
+
+    print(f"\n✅ MATCH FOUND: '{title}' by {artist} (confidence score: {best_score})")
+    return {"title": title, "artist": artist, "score": best_score}
+
+
+# ============================
+# RUN — Query file ko test karo
+# ============================
+if __name__ == "__main__":
+    match_song("query.mp3")   # ye ek chota clip hona chahiye (5-10 sec)
+
     cursor.close()
     conn.close()
-
-    return {"song": title, "artist": artist, "confidence": best_score}
-
-
-# ============================
-# API ROUTE
-# ============================
-@app.post("/process-audio")
-async def process_audio(file: UploadFile):
-    save_path = f"received_audio/{file.filename}"
-    with open(save_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    result = match_song(save_path)
-
-    if result is None:
-        return {"song": None, "artist": None, "message": "No match found"}
-
-    return result
