@@ -1,0 +1,12 @@
+# Python
+pythonBackend/venv/
+pythonBackend/received_audio/
+pythonBackend/__pycache__/
+*.pyc
+
+# Go
+GoBackend/temp/
+
+# General
+.env
+.DS_Store
