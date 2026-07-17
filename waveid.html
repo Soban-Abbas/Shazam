@@ -547,8 +547,9 @@
       if (isListening) stopListening();
     }, 7000);
   }
-
   function stopListening() {
+    console.log("1. stopListening called"); // ADD THIS
+
     isListening = false;
     recordBtn.classList.remove('listening');
     statusText.classList.remove('live');
@@ -558,35 +559,45 @@
     cancelAnimationFrame(animationId);
     barEls.forEach(bar => { bar.style.height = '6px'; bar.style.opacity = 0.25; });
 
+    mediaRecorder.onstop = async () => {
+      console.log("2. onstop fired, chunks:", audioChunks.length); // ADD THIS
+      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+      console.log("3. blob created, size:", audioBlob.size); // ADD THIS
+      await identify(audioBlob);
+    };
+
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
       mediaRecorder.stop();
+      console.log("4. mediaRecorder.stop() called, state:", mediaRecorder.state); // ADD THIS
     }
     stream.getTracks().forEach(t => t.stop());
     if (audioContext) audioContext.close();
-
-    mediaRecorder.onstop = async () => {
-      const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-      await identify(audioBlob);
-    };
   }
 
   async function identify(audioBlob) {
+    console.log("5. identify() called"); // ADD THIS
     try {
       const formData = new FormData();
       formData.append('audio', audioBlob, 'clip.webm');
+
+      console.log("6. sending fetch request..."); // ADD THIS
 
       const res = await fetch(`${API_BASE}/shazam/uploadfile`, {
         method: 'POST',
         body: formData
       });
+
+      console.log("7. fetch response received:", res.status); // ADD THIS
+
       const data = await res.json();
+      console.log("8. data parsed:", data); // ADD THIS
       showResult(data);
     } catch (err) {
+      console.log("ERROR in identify:", err); // ADD THIS
       statusText.textContent = "Couldn't reach the server";
       hintText.textContent = "Check that the backend is running";
     }
   }
-
   function showResult(data) {
     statusText.textContent = "Tap to identify";
     hintText.textContent = "Hold your device near the sound source";
